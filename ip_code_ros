@@ -1,0 +1,118 @@
+#include<ros/ros.h>
+#include<image_transport/image_transport.h>
+#include<cv_bridge/cv_bridge.h>
+#include<sensor_msgs/image_encodings.h>
+#include<opencv2/imgproc/imgproc.hpp>
+#include<opencv2/highgui/highgui.hpp>
+//#include <bits/stdc++.h>
+using namespace std;
+using namespace cv;
+Mat hsv,thres,img;
+int hmin_value=0,smin_value=0,vmin_value=0,hmax_value=179,smax_value=255,vmax_value=255;//hmin=0,smin=0,vmin=0,hmax=179,smax=255,vmax=255; 
+void callback(int )
+{
+inRange(hsv,Scalar(hmin_value,smin_value,vmin_value),Scalar(hmax_value,smax_value,vmax_value),thres);
+}
+
+void tracks()
+{
+//cvNamedWindow("settings");
+cvCreateTrackbar("HMIN","settings",&hmin_value,179,callback);
+cvCreateTrackbar("HMAX","settings",&hmax_value,179,callback);
+cvCreateTrackbar("SMIN","settings",&smin_value,255,callback);
+cvCreateTrackbar("SMAX","settings",&smax_value,255,callback);
+cvCreateTrackbar("VMIN","settings",&vmin_value,255,callback);
+cvCreateTrackbar("VMAX","settings",&vmax_value,255,callback);
+}
+
+void contrast_streching(Mat img)
+{
+Mat ch[3];
+split(img,ch);
+normalize(ch[1],ch[1],255,0,NORM_MINMAX);
+normalize(ch[2],ch[2],255,0,NORM_MINMAX);
+normalize(ch[0],ch[0],255,0,NORM_MINMAX);
+merge(ch,3,img);
+}
+
+void smoothing(Mat img)
+{
+GaussianBlur(img,img,Size(3,3),0,0);
+}
+
+
+static const string OPENCV_WINDOW =	 "Image window";
+
+class ImageConverter
+{
+	ros::NodeHandle nh_;
+	image_transport::ImageTransport it_;
+	image_transport::Subscriber image_sub_;
+	image_transport::Publisher image_pub_;
+
+	public:
+		ImageConverter():it_(nh_)
+		{
+			image_sub_=it_.subscribe("/usb_cam/image_raw",1,&ImageConverter::imageCb,this); //rostopic to be subscribed
+			image_pub_=it_.advertise("output_video",1);
+			cv::namedWindow(OPENCV_WINDOW);//,CV_WINDOW_NORMAL);
+			//resizeWindow(OPENCV_WINDOW,600,400);
+			//namedWindow("HSV",
+		}
+		~ImageConverter()
+		{
+			cv::destroyWindow(OPENCV_WINDOW);
+		}
+		
+		void imageCb(const sensor_msgs::ImageConstPtr& msg)
+		{
+			cv_bridge::CvImagePtr cv_ptr;
+			try
+			{
+				cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+			}
+			catch(cv_bridge::Exception& e)
+			{
+				ROS_ERROR("cv_bridge exception: %s",e.what());
+				return ;
+			}
+			
+			//***********opencv codes(mat version)
+			
+			
+			resize(cv_ptr->image, img, cvSize(500,400), 0, 0, CV_INTER_LINEAR);  // to reduce its size.
+			//smoothing(img);
+			contrast_streching(img);
+			//smoothing(img);			
+			imshow(OPENCV_WINDOW,img);			
+			hsv=img.clone();
+			thres=img.clone();
+			cv::namedWindow("hsv_window");
+			//cv::namedWindow("color_threshold");
+			cvtColor(img,hsv,CV_RGB2HSV);
+			smoothing(hsv);
+			//smoothing(hsv);
+			//smoothing(hsv);
+			//contrast_streching(hsv);
+			//smoothing(hsv);			
+			
+			imshow("hsv_window",hsv);
+			tracks();		
+			callback(0);
+			//imshow("color_threshold",thres);
+						
+			cvWaitKey(3);
+			//if(c==27)break;
+			//***********
+			image_pub_.publish(cv_ptr->toImageMsg());
+		}
+};
+
+int main(int argc,char** argv)
+{
+	ros::init(argc,argv,"image_converter");
+	
+	ImageConverter ic;
+	ros::spin();
+	return 0;
+}	
